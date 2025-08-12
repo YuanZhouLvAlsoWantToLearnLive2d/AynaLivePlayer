@@ -1,0 +1,89 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    env:
+      GOOS: windows
+      GOARCH: amd64
+      EXECUTABLE: AynaLivePlayer.exe
+      CGO_CFLAGS: "-I${{ github.workspace }}/libmpv/include -I${{ github.workspace }}/libvlc/VideoLAN.LibVLC.Windows.3.0.21/build/x64/include"
+      CGO_LDFLAGS: "-L${{ github.workspace }}/libmpv -L${{ github.workspace }}/libvlc/VideoLAN.LibVLC.Windows.3.0.21/build/x64"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install 7-Zip
+        run: choco install 7zip
+
+      - name: Download libmpv
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: "shinchiro/mpv-winbuild-cmake"
+          latest: true
+          fileName: "mpv-dev-x86_64-[0-9]*.7z"
+          extract: false
+          out-file-path: "libmpv"
+
+      - name: Extract libmpv
+        run: |
+          7z x "libmpv/mpv-dev-x86_64-*.7z" -o"libmpv"
+
+      - name: Setup NuGet.exe
+        uses: nuget/setup-nuget@v2
+        with:
+          nuget-version: 'latest'
+
+      - name: Install VLC dependency
+        run: nuget install VideoLAN.LibVLC.Windows -OutputDirectory ${{ github.workspace }}/libvlc -Version 3.0.21
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install Go Dependencies
+        run: |
+          go mod tidy
+          go install fyne.io/tools/cmd/fyne@latest
+
+      - name: Bundle assets
+        run: |
+          fyne bundle --name resImageIcon --package resource ./assets/icon2.png > ./resource/bundle.go
+
+      - name: Build application
+        run: |
+          go build -tags="mpvOnly,nosource" -v -o ./AynaLivePlayerMpvNoSource.exe -ldflags -H=windowsgui app/main.go
+          go build -tags="vlcOnly,nosource" -v -o ./AynaLivePlayerVlcNoSource.exe -ldflags -H=windowsgui app/main.go
+          go build -tags="nosource" -v -o ./AynaLivePlayerAllPlayerNoSource.exe -ldflags -H=windowsgui app/main.go
+          go build -tags="mpvOnly" -v -o ./AynaLivePlayerMpv.exe -ldflags -H=windowsgui app/main.go
+          go build -tags="vlcOnly" -v -o ./AynaLivePlayerVlc.exe -ldflags -H=windowsgui app/main.go
+          go build -v -o ./AynaLivePlayerAllPlayer.exe -ldflags -H=windowsgui app/main.go
+
+      - name: Upload artifact (NoSource)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-nosource
+          path: |
+            ./AynaLivePlayerMpvNoSource.exe
+            ./AynaLivePlayerVlcNoSource.exe
+            ./AynaLivePlayerAllPlayerNoSource.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            ./AynaLivePlayerMpv.exe
+            ./AynaLivePlayerVlc.exe
+            ./AynaLivePlayerAllPlayer.exe
